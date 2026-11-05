@@ -13,7 +13,9 @@ import {
   getActiveProjectId,
   listSavedProjects,
   loadProject,
+  migrateStripLegacySampleStls,
   saveProject,
+  stripLegacySampleStl,
 } from "@/lib/storage";
 import { loadStlGeometry } from "@/lib/stl";
 import { canGenerate, validateProject } from "@/lib/validation";
@@ -113,26 +115,30 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   hydrate: () => {
     if (get().hydrated) return;
+    migrateStripLegacySampleStls();
     const id = getActiveProjectId();
     if (id) {
       const loaded = loadProject(id);
       if (loaded) {
+        const project = stripLegacySampleStl(loaded);
         let geometryCache: ArrayBuffer | null = null;
-        if (loaded.stl?.dataBase64) {
-          geometryCache = base64ToArrayBuffer(loaded.stl.dataBase64);
+        if (project.stl?.dataBase64) {
+          geometryCache = base64ToArrayBuffer(project.stl.dataBase64);
         }
         set({
-          project: loaded,
-          issues: refresh(loaded),
+          project,
+          issues: refresh(project),
           geometryCache,
           hydrated: true,
           stlGeometryVersion: geometryCache ? 1 : 0,
         });
+        // Persist stripped sample so it does not come back next refresh
+        if (project.stl !== loaded.stl) saveProject(project);
         get().rebuildSim();
         return;
       }
     }
-    // Empty project — user imports their own STL
+    // Factory default: stl null — user imports their own workpiece
     set({ hydrated: true, issues: refresh(get().project) });
   },
 

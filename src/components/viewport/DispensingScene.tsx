@@ -294,13 +294,16 @@ function ViewportHud() {
         <div className="mt-1 text-[var(--muted)]">
           {stl
             ? `${stl.name} · ${stl.dimensions.x.toFixed(1)}×${stl.dimensions.y.toFixed(1)}×${stl.dimensions.z.toFixed(1)} mm`
-            : "No STL loaded"}
+            : "No STL — import your own workpiece (Model → Import STL)"}
         </div>
         <div className="text-[var(--muted)]">
           Fixture {fixture.rows}×{fixture.columns} · Path {pathLen.toFixed(1)} mm
         </div>
-        {tab === "path" ? (
+        {tab === "path" && stl ? (
           <div className="mt-1 text-[var(--accent)]">Click a product surface to add path points</div>
+        ) : null}
+        {tab === "path" && !stl ? (
+          <div className="mt-1 text-[var(--warn-text)]">Import an STL before picking path points on a product</div>
         ) : null}
       </div>
       <div className="absolute right-3 top-3 rounded border border-[var(--border)] bg-[var(--panel)]/90 px-3 py-2 text-[11px] backdrop-blur">

@@ -1,7 +1,51 @@
-import type { Project } from "./types";
+import type { Project, StlAsset } from "./types";
 
 const PROJECTS_KEY = "cnc-glue-projects-v1";
 const ACTIVE_KEY = "cnc-glue-active-project-id";
+const SAMPLE_STRIP_FLAG = "cnc-glue-sample-stl-stripped-v1";
+
+/** Former bundled/procedural demo models — never reintroduce these. */
+export function isLegacySampleStl(stl: StlAsset | null | undefined): boolean {
+  if (!stl?.name) return false;
+  const name = stl.name.trim().toLowerCase();
+  return (
+    name === "sample-dangle.stl" ||
+    name === "sample_dangle.stl" ||
+    name === "sample dangle.stl" ||
+    /^sample[-_\s]?dangle(\.stl)?$/.test(name)
+  );
+}
+
+/** Drop legacy sample STL blobs; keep the rest of the project. */
+export function stripLegacySampleStl(project: Project): Project {
+  if (!isLegacySampleStl(project.stl)) return project;
+  return { ...project, stl: null };
+}
+
+/**
+ * One-time rewrite of localStorage: remove embedded sample-dangle (etc.) STL data
+ * left over from older app versions. User-imported models are kept.
+ */
+export function migrateStripLegacySampleStls(): void {
+  if (typeof window === "undefined") return;
+  if (localStorage.getItem(SAMPLE_STRIP_FLAG) === "1") return;
+  try {
+    const raw = localStorage.getItem(PROJECTS_KEY);
+    if (raw) {
+      const map = JSON.parse(raw) as Record<string, Project>;
+      let changed = false;
+      for (const id of Object.keys(map)) {
+        if (!isLegacySampleStl(map[id].stl)) continue;
+        map[id] = { ...map[id], stl: null, updatedAt: new Date().toISOString() };
+        changed = true;
+      }
+      if (changed) localStorage.setItem(PROJECTS_KEY, JSON.stringify(map));
+    }
+  } catch {
+    // ignore corrupt storage
+  }
+  localStorage.setItem(SAMPLE_STRIP_FLAG, "1");
+}
 
 export function listSavedProjects(): Array<{ id: string; name: string; updatedAt: string }> {
   if (typeof window === "undefined") return [];
@@ -23,7 +67,9 @@ export function loadProject(id: string): Project | null {
     const raw = localStorage.getItem(PROJECTS_KEY);
     if (!raw) return null;
     const map = JSON.parse(raw) as Record<string, Project>;
-    return map[id] ?? null;
+    const project = map[id];
+    if (!project) return null;
+    return stripLegacySampleStl(project);
   } catch {
     return null;
   }
@@ -31,7 +77,8 @@ export function loadProject(id: string): Project | null {
 
 export function saveProject(project: Project): void {
   if (typeof window === "undefined") return;
-  const updated = { ...project, updatedAt: new Date().toISOString() };
+  const cleaned = stripLegacySampleStl(project);
+  const updated = { ...cleaned, updatedAt: new Date().toISOString() };
   const raw = localStorage.getItem(PROJECTS_KEY);
   const map = raw ? (JSON.parse(raw) as Record<string, Project>) : {};
   map[updated.id] = updated;
