@@ -6,8 +6,20 @@ export function validateProject(project: Project): ValidationIssue[] {
   const path = project.paths.find((p) => p.id === project.activePathId) ?? project.paths[0];
   const { machine, motion, dispenser, fixture } = project;
 
-  if (!path || path.points.length < 2) {
+  if (project.paths.length === 0 || !path) {
+    issues.push({
+      level: "error",
+      message: "No adhesive path defined. Create a dispensing path before generating G-code.",
+    });
+  } else if (path.points.length < 2) {
     issues.push({ level: "error", message: "Dispensing path requires at least two points." });
+  }
+
+  if (!project.stl) {
+    issues.push({
+      level: "warning",
+      message: "No STL imported yet. Import a workpiece model to visualize products in the fixture.",
+    });
   }
 
   if (!dispenser.activationCommand.trim() || !dispenser.deactivationCommand.trim()) {

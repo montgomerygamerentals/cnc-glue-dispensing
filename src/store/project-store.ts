@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { createProject, uid } from "@/lib/defaults";
+import { createProject, defaultPath, uid } from "@/lib/defaults";
 import { generateGcode } from "@/lib/gcode/generator";
 import { buildSimulationTimeline, interpolateFrames, parseGcode } from "@/lib/gcode/parser";
 import type { SimKeyframe } from "@/lib/gcode/parser";
@@ -15,7 +15,7 @@ import {
   loadProject,
   saveProject,
 } from "@/lib/storage";
-import { createSampleDangleGeometry, loadStlGeometry } from "@/lib/stl";
+import { loadStlGeometry } from "@/lib/stl";
 import { canGenerate, validateProject } from "@/lib/validation";
 import type {
   DispensingPath,
@@ -50,10 +50,12 @@ interface ProjectStore {
   setNotes: (notes: string) => void;
 
   importStl: (file: File) => Promise<void>;
-  loadSampleStl: () => void;
+  clearStl: () => void;
   updateModelTransform: (patch: Partial<StlAsset["transform"]>) => void;
 
   setActivePath: (id: string) => void;
+  addPath: () => void;
+  deletePath: (id: string) => void;
   updatePath: (id: string, patch: Partial<DispensingPath>) => void;
   addPoint: (position: Vec3) => void;
   updatePoint: (pointId: string, position: Vec3) => void;
@@ -91,7 +93,7 @@ function refresh(project: Project): ValidationIssue[] {
 }
 
 export const useProjectStore = create<ProjectStore>((set, get) => ({
-  project: createProject("Dangle batch — 12-up"),
+  project: createProject("Untitled dispensing job"),
   tab: "model",
   issues: [],
   sim: {
@@ -130,8 +132,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         return;
       }
     }
-    // Default sample model for first launch
-    get().loadSampleStl();
+    // Empty project — user imports their own STL
     set({ hydrated: true, issues: refresh(get().project) });
   },
 
@@ -192,26 +193,16 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     }));
   },
 
-  loadSampleStl: () => {
-    const sample = createSampleDangleGeometry();
-    const stl: StlAsset = {
-      id: uid("stl"),
-      name: "sample-dangle.stl",
-      dataBase64: arrayBufferToBase64(sample.arrayBuffer),
-      dimensions: sample.dimensions,
-      transform: {
-        position: { x: 0, y: 0, z: 0 },
-        rotation: { x: 0, y: 0, z: 0 },
-        scale: 1,
-      },
-    };
-    set((s) => ({
-      project: { ...s.project, stl },
-      geometryCache: sample.arrayBuffer,
-      stlGeometryVersion: s.stlGeometryVersion + 1,
-      issues: refresh({ ...s.project, stl }),
-    }));
-  },
+  clearStl: () =>
+    set((s) => {
+      const project = { ...s.project, stl: null };
+      return {
+        project,
+        geometryCache: null,
+        stlGeometryVersion: s.stlGeometryVersion + 1,
+        issues: refresh(project),
+      };
+    }),
 
   updateModelTransform: (patch) =>
     set((s) => {
@@ -225,11 +216,42 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   setActivePath: (id) => set((s) => ({ project: { ...s.project, activePathId: id } })),
 
+  addPath: () =>
+    set((s) => {
+      const path = defaultPath();
+      path.name = `Adhesive path ${s.project.paths.length + 1}`;
+      const project = {
+        ...s.project,
+        paths: [...s.project.paths, path],
+        activePathId: path.id,
+        gcode: "",
+      };
+      return { project, issues: refresh(project), simFrames: [] };
+    }),
+
+  deletePath: (id) =>
+    set((s) => {
+      const remaining = s.project.paths.filter((p) => p.id !== id);
+      const wasActive = s.project.activePathId === id;
+      const activePathId = wasActive
+        ? remaining[0]?.id ?? null
+        : s.project.activePathId && remaining.some((p) => p.id === s.project.activePathId)
+          ? s.project.activePathId
+          : remaining[0]?.id ?? null;
+      const project = {
+        ...s.project,
+        paths: remaining,
+        activePathId,
+        gcode: "",
+      };
+      return { project, issues: refresh(project), simFrames: [] };
+    }),
+
   updatePath: (id, patch) =>
     set((s) => {
       const paths = s.project.paths.map((p) => (p.id === id ? { ...p, ...patch } : p));
-      const project = { ...s.project, paths };
-      return { project, issues: refresh(project) };
+      const project = { ...s.project, paths, gcode: "" };
+      return { project, issues: refresh(project), simFrames: [] };
     }),
 
   addPoint: (position) =>
@@ -239,8 +261,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         const point: PathPoint = { id: uid("pt"), position };
         return { ...p, points: [...p.points, point] };
       });
-      const project = { ...s.project, paths };
-      return { project, issues: refresh(project) };
+      const project = { ...s.project, paths, gcode: "" };
+      return { project, issues: refresh(project), simFrames: [] };
     }),
 
   updatePoint: (pointId, position) =>
@@ -252,8 +274,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           points: p.points.map((pt) => (pt.id === pointId ? { ...pt, position } : pt)),
         };
       });
-      const project = { ...s.project, paths };
-      return { project, issues: refresh(project) };
+      const project = { ...s.project, paths, gcode: "" };
+      return { project, issues: refresh(project), simFrames: [] };
     }),
 
   deletePoint: (pointId) =>
@@ -262,8 +284,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         if (p.id !== s.project.activePathId) return p;
         return { ...p, points: p.points.filter((pt) => pt.id !== pointId) };
       });
-      const project = { ...s.project, paths };
-      return { project, issues: refresh(project) };
+      const project = { ...s.project, paths, gcode: "" };
+      return { project, issues: refresh(project), simFrames: [] };
     }),
 
   clearPathPoints: () =>
@@ -271,8 +293,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       const paths = s.project.paths.map((p) =>
         p.id === s.project.activePathId ? { ...p, points: [] } : p
       );
-      const project = { ...s.project, paths };
-      return { project, issues: refresh(project) };
+      const project = { ...s.project, paths, gcode: "" };
+      return { project, issues: refresh(project), simFrames: [] };
     }),
 
   generate: () => {
@@ -319,8 +341,13 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   newProject: () => {
     const project = createProject();
-    set({ project, issues: refresh(project), geometryCache: null, simFrames: [] });
-    get().loadSampleStl();
+    set({
+      project,
+      issues: refresh(project),
+      geometryCache: null,
+      simFrames: [],
+      stlGeometryVersion: get().stlGeometryVersion + 1,
+    });
   },
 
   removeSaved: (id) => deleteProject(id),

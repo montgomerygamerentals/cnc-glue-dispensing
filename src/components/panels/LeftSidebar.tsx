@@ -140,7 +140,7 @@ export function LeftSidebar() {
 function ModelPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
   const importStl = useProjectStore((s) => s.importStl);
-  const loadSampleStl = useProjectStore((s) => s.loadSampleStl);
+  const clearStl = useProjectStore((s) => s.clearStl);
   const stl = useProjectStore((s) => s.project.stl);
   const updateModelTransform = useProjectStore((s) => s.updateModelTransform);
 
@@ -161,7 +161,9 @@ function ModelPanel() {
           <Button variant="primary" onClick={() => inputRef.current?.click()}>
             Import STL
           </Button>
-          <Button onClick={loadSampleStl}>Sample Dangle</Button>
+          {stl ? (
+            <Button onClick={clearStl}>Remove model</Button>
+          ) : null}
         </div>
         {stl ? (
           <div className="text-[11px] text-[var(--muted)]">
@@ -169,7 +171,11 @@ function ModelPanel() {
             <br />
             {stl.dimensions.x.toFixed(2)} × {stl.dimensions.y.toFixed(2)} × {stl.dimensions.z.toFixed(2)} mm
           </div>
-        ) : null}
+        ) : (
+          <p className="text-[11px] text-[var(--muted)]">
+            No workpiece loaded. Import your STL to place products in the fixture.
+          </p>
+        )}
       </Section>
       {stl ? (
         <Section title="Model registration (machine coords)">
