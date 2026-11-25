@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { readLiveCamera } from "@/lib/camera-view";
 import { createProject, defaultPath, nextPathName, uid } from "@/lib/defaults";
 import { generateGcode } from "@/lib/gcode/generator";
 import { buildSimulationTimeline, interpolateFrames, parseGcode } from "@/lib/gcode/parser";
@@ -71,6 +72,8 @@ interface ProjectStore {
   stlGeometryVersion: number;
   geometryCache: GeometryCache;
   hydrated: boolean;
+  /** Bumps when a project is opened so the viewport applies that project's camera. */
+  viewRevision: number;
   savedProjects: Array<{ id: string; name: string; updatedAt: string }>;
   saveError: string | null;
   saving: boolean;
@@ -105,6 +108,8 @@ interface ProjectStore {
   duplicatePath: (id: string) => void;
   deletePath: (id: string) => void;
   updatePath: (id: string, patch: Partial<DispensingPath>) => void;
+  /** Turn Safe Z retrace on or off for every path in one step. */
+  setAllRetrace: (enabled: boolean) => void;
   addPoint: (position: Vec3) => void;
   updatePoint: (pointId: string, position: Vec3) => void;
   deletePoint: (pointId: string) => void;
@@ -241,6 +246,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   stlGeometryVersion: 0,
   geometryCache: {},
   hydrated: false,
+  viewRevision: 0,
   savedProjects: [],
   saveError: null,
   saving: false,
@@ -273,6 +279,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
             issues: refresh(project),
             geometryCache,
             hydrated: true,
+            viewRevision: get().viewRevision + 1,
             stlGeometryVersion: Object.keys(geometryCache).length,
             saveError: null,
             past: [],
@@ -287,6 +294,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       historyCoalesce = null;
       set({
         hydrated: true,
+        viewRevision: get().viewRevision + 1,
         issues: refresh(get().project),
         saveError: null,
         past: [],
@@ -299,6 +307,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       historyCoalesce = null;
       set({
         hydrated: true,
+        viewRevision: get().viewRevision + 1,
         issues: refresh(get().project),
         saveError: err instanceof Error ? err.message : "Failed to load saved projects",
         past: [],
@@ -676,6 +685,15 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     });
   },
 
+  setAllRetrace: (enabled) => {
+    pushHistory(set, get);
+    set((s) => {
+      const paths = s.project.paths.map((p) => ({ ...p, retraceAtSafeZ: enabled }));
+      const project = { ...s.project, paths, gcode: "" };
+      return { project, issues: refresh(project), simFrames: [] };
+    });
+  },
+
   addPoint: (position) => {
     pushHistory(set, get);
     const rounded = {
@@ -831,11 +849,11 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   save: async () => {
-    const { project } = get();
+    const projectAtStart = get().project;
     try {
-      const conflicts = await findProjectsWithName(project.name, project.id);
+      const conflicts = await findProjectsWithName(projectAtStart.name, projectAtStart.id);
       if (conflicts.length > 0) {
-        const label = project.name.trim() || "Untitled";
+        const label = projectAtStart.name.trim() || "Untitled";
         const ok = window.confirm(`A project named "${label}" already exists. Overwrite it?`);
         if (!ok) return;
         for (const conflict of conflicts) await deleteProject(conflict.id);
@@ -844,6 +862,9 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       const started = Date.now();
       set({ saving: true });
       try {
+        const latest = get().project;
+        const liveCamera = readLiveCamera();
+        const project = liveCamera ? { ...latest, camera: liveCamera } : latest;
         const saved = await saveProject(project);
         set({ project: saved, saveError: null });
         await get().refreshSavedProjects();
@@ -877,6 +898,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       issues: refresh(project),
       geometryCache,
       stlGeometryVersion: s.stlGeometryVersion + 1,
+      viewRevision: s.viewRevision + 1,
       saveError: null,
     }));
     get().rebuildSim();
@@ -887,8 +909,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     set({ saving: true, saveError: null });
     try {
       const current = get().project;
-      const source =
+      const liveCamera = !id || id === current.id ? readLiveCamera() : null;
+      const sourceBase =
         !id || id === current.id ? structuredClone(current) : await loadProject(id);
+      const source = sourceBase && liveCamera ? { ...sourceBase, camera: liveCamera } : sourceBase;
       if (!source) {
         set({ saveError: "Could not duplicate that project." });
         return;
@@ -912,6 +936,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         issues: refresh(project),
         geometryCache,
         stlGeometryVersion: s.stlGeometryVersion + 1,
+        viewRevision: s.viewRevision + 1,
         saveError: null,
       }));
       await get().refreshSavedProjects();
@@ -942,6 +967,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       geometryCache: {},
       simFrames: [],
       stlGeometryVersion: get().stlGeometryVersion + 1,
+      viewRevision: get().viewRevision + 1,
       saveError: null,
     });
   },

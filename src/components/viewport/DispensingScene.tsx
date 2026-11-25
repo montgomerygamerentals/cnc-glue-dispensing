@@ -4,10 +4,11 @@ import { Canvas, ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import { Grid, GizmoHelper, Line, OrbitControls, Text } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import * as THREE from "three";
+import { defaultCameraView, registerLiveCameraReader } from "@/lib/camera-view";
 import { modelLocalToWorld, pathPointsWorld, toolpathSegmentsFromFrames } from "@/lib/models";
 import { loadStlGeometry } from "@/lib/stl";
 import { useProjectStore } from "@/store/project-store";
-import type { StlAsset } from "@/lib/types";
+import type { CameraView, StlAsset } from "@/lib/types";
 
 type MeasureHover = { x: number; y: number; clientX: number; clientY: number };
 
@@ -664,6 +665,7 @@ function SafeTravelPreview() {
     active: boolean;
     stops: { id: string; x: number; y: number }[];
     route: { x: number; y: number }[];
+    retrace: { x: number; y: number }[];
   }[] = [];
   let prev = { x: project.machine.homePosition.x, y: project.machine.homePosition.y };
 
@@ -684,13 +686,34 @@ function SafeTravelPreview() {
           y: start.y + project.motion.startOffset.y,
         },
       ];
-      if (stops.length > 0) {
-        jobs.push({ id: path.id, active: path.id === project.activePathId, stops, route });
+      const departed = Boolean(project.motion.endOffset.x || project.motion.endOffset.y);
+      const retrace = path.retraceAtSafeZ
+        ? [
+            {
+              x: end.x + project.motion.endOffset.x,
+              y: end.y + project.motion.endOffset.y,
+            },
+            ...[...ordered]
+              .reverse()
+              .slice(departed ? 0 : 1)
+              .map((p) => ({ x: p.x, y: p.y })),
+          ]
+        : [];
+      if (stops.length > 0 || retrace.length > 1) {
+        jobs.push({
+          id: path.id,
+          active: path.id === project.activePathId,
+          stops,
+          route: stops.length > 0 ? route : [],
+          retrace,
+        });
       }
-      prev = {
-        x: end.x + project.motion.endOffset.x,
-        y: end.y + project.motion.endOffset.y,
-      };
+      prev = path.retraceAtSafeZ
+        ? { x: start.x, y: start.y }
+        : {
+            x: end.x + project.motion.endOffset.x,
+            y: end.y + project.motion.endOffset.y,
+          };
     }
   }
 
@@ -712,6 +735,20 @@ function SafeTravelPreview() {
               dashed
               dashSize={3}
               gapSize={1.5}
+            />
+          ))}
+          {job.retrace.slice(1).map((pt, i) => (
+            <Line
+              key={`${job.id}-retrace-${i}`}
+              points={[
+                new THREE.Vector3(job.retrace[i].x, job.retrace[i].y, z),
+                new THREE.Vector3(pt.x, pt.y, z),
+              ]}
+              color={job.active ? "#7dd3fc" : "#5eb0d4"}
+              lineWidth={job.active ? 2 : 1}
+              dashed
+              dashSize={2}
+              gapSize={1.2}
             />
           ))}
           {job.stops.map((pt) => (
@@ -829,17 +866,54 @@ function SimClock() {
   return null;
 }
 
-function CameraRig() {
-  const machine = useProjectStore((s) => s.project.machine);
-  const { camera } = useThree();
-  const primed = useRef(false);
+function vecOf(v: THREE.Vector3) {
+  return { x: v.x, y: v.y, z: v.z };
+}
+
+function applyCameraView(camera: THREE.Camera, orbit: OrbitControlsLike, view: CameraView) {
+  const position = new THREE.Vector3(view.position.x, view.position.y, view.position.z);
+  const target = new THREE.Vector3(view.target.x, view.target.y, view.target.z);
+  const up = new THREE.Vector3(view.up.x, view.up.y, view.up.z);
+  if (up.lengthSq() < 1e-8) up.set(0, 0, 1);
+  else up.normalize();
+  const place = () => {
+    camera.position.copy(position);
+    camera.up.copy(up);
+    orbit.target.copy(target);
+    camera.lookAt(target);
+  };
+  place();
+  orbit.update();
+  // update() nudges a straight-down camera off the pole. Put the saved pose back.
+  place();
+}
+
+function CameraPersistence() {
+  const camera = useThree((s) => s.camera);
+  const controls = useThree((s) => s.controls);
+  const hydrated = useProjectStore((s) => s.hydrated);
+  const viewRevision = useProjectStore((s) => s.viewRevision);
+
   useEffect(() => {
-    if (primed.current) return;
-    camera.position.set(machine.workAreaX * 0.9, -machine.workAreaY * 0.9, machine.workAreaZ * 3.2);
-    camera.up.set(0, 0, 1);
-    camera.lookAt(machine.workAreaX / 2, machine.workAreaY / 2, machine.workAreaZ / 2);
-    primed.current = true;
-  }, [camera, machine.workAreaX, machine.workAreaY, machine.workAreaZ]);
+    return registerLiveCameraReader(() => {
+      const orbit = controls as OrbitControlsLike | null;
+      if (!orbit?.target) return null;
+      return {
+        position: vecOf(camera.position),
+        target: vecOf(orbit.target),
+        up: vecOf(camera.up),
+      };
+    });
+  }, [camera, controls]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const orbit = controls as OrbitControlsLike | null;
+    if (!orbit?.target) return;
+    const { project } = useProjectStore.getState();
+    applyCameraView(camera, orbit, project.camera ?? defaultCameraView(project.machine));
+  }, [camera, controls, hydrated, viewRevision]);
+
   return null;
 }
 
@@ -1201,13 +1275,13 @@ function SceneContent({
       <MeasureTracker enabled={measureMode} onHover={onMeasureHover} />
       <MeasureMarker hover={measureMode ? measureHover : null} />
       <SimClock />
-      <CameraRig />
       <OrbitControls
         makeDefault
         target={[150, 90, 20]}
         maxPolarAngle={Math.PI * 0.95}
       />
       <SyncOrbitTarget />
+      <CameraPersistence />
       <CameraRotateBridge apiRef={rotateApiRef} />
       <GizmoHelper alignment="bottom-right" margin={[60, 60]}>
         <ViewAxisGizmo apiRef={rotateApiRef} />

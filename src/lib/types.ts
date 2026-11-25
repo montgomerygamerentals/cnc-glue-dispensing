@@ -72,6 +72,8 @@ export interface DispensingPath {
   points: PathPoint[];
   /** XY points visited at Safe Z before this path's glue starts. */
   safePoints: SafeTravelPoint[];
+  /** After this glue line, rapid back along it in reverse at Safe Z before the next path. */
+  retraceAtSafeZ: boolean;
   /** Fixed Z for planar mode; clearance applied separately */
   planarZ: number;
   nozzleClearance: number;
@@ -114,6 +116,13 @@ export interface MotionConfig {
   endOffset: Vec3;
 }
 
+/** Orbit camera pose in machine coordinates. */
+export interface CameraView {
+  position: Vec3;
+  target: Vec3;
+  up: Vec3;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -129,6 +138,8 @@ export interface Project {
   dryRun: boolean;
   gcode: string;
   notes: string;
+  /** Last viewport camera. Null until the project is saved with a view. */
+  camera: CameraView | null;
 }
 
 export interface ValidationIssue {

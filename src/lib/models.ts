@@ -1,3 +1,4 @@
+import { sanitizeCameraView } from "./camera-view";
 import type { DispensingPath, Project, StlAsset, ToolpathSegment, Vec3 } from "./types";
 import type { SimKeyframe } from "./gcode/parser";
 
@@ -128,6 +129,7 @@ export function migrateProject(raw: unknown): Project {
     ...path,
     modelId: path.modelId || fallbackModelId,
     safePoints: Array.isArray(path.safePoints) ? path.safePoints : [],
+    retraceAtSafeZ: path.retraceAtSafeZ === true,
   }));
 
   const { stl: _drop, fixture: _fixture, ...rest } = p as Project & {
@@ -159,5 +161,6 @@ export function migrateProject(raw: unknown): Project {
     models,
     activeModelId,
     paths,
+    camera: sanitizeCameraView(p.camera),
   } as Project;
 }

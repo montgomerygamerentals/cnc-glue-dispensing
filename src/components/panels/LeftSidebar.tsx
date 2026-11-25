@@ -543,6 +543,7 @@ function PathPanel() {
   const deleteSafePoint = useProjectStore((s) => s.deleteSafePoint);
   const clearSafePoints = useProjectStore((s) => s.clearSafePoints);
   const setActivePath = useProjectStore((s) => s.setActivePath);
+  const setAllRetrace = useProjectStore((s) => s.setAllRetrace);
   const addPath = useProjectStore((s) => s.addPath);
   const duplicatePath = useProjectStore((s) => s.duplicatePath);
   const deletePath = useProjectStore((s) => s.deletePath);
@@ -649,6 +650,15 @@ function PathPanel() {
             </SelectInput>
           </Field>
         </div>
+        <Button
+          variant={path.retraceAtSafeZ ? "primary" : "default"}
+          onClick={() => updatePath(path.id, { retraceAtSafeZ: !path.retraceAtSafeZ })}
+        >
+          {path.retraceAtSafeZ ? "Retrace at Safe Z: on" : "Retrace at Safe Z"}
+        </Button>
+        <p className="text-[11px] text-[var(--muted)]">
+          After this glue line, the nozzle lifts to Safe Z and rapids back along the same line in reverse, then goes to the next path. Each path has its own switch.
+        </p>
         <div className="text-[11px] text-[var(--muted)]">Total path length: {length.toFixed(2)} mm</div>
         {path.mode === "surface" ? (
           <p className="text-[10px] text-[var(--warn-text)]">
@@ -772,7 +782,20 @@ function PathPanel() {
         )}
       </Section>
 
-      <Section title="Paths in project">
+      <Section
+        title="Paths in project"
+        action={
+          project.paths.length > 1 ? (
+            <Button
+              className="!px-2 !py-1 text-[10px]"
+              variant={project.paths.every((p) => p.retraceAtSafeZ) ? "primary" : "default"}
+              onClick={() => setAllRetrace(!project.paths.every((p) => p.retraceAtSafeZ))}
+            >
+              {project.paths.every((p) => p.retraceAtSafeZ) ? "Retrace all: on" : "Retrace all"}
+            </Button>
+          ) : null
+        }
+      >
         {project.paths.length === 0 ? (
           <p className="mb-2 text-[11px] text-[var(--muted)]">No dispensing paths yet.</p>
         ) : (
@@ -796,6 +819,18 @@ function PathPanel() {
                   >
                     {p.name}
                     <span className="block truncate text-[10px] text-[var(--muted-2)]">{modelName}</span>
+                  </button>
+                  <button
+                    type="button"
+                    title="Retrace this path at Safe Z after gluing"
+                    className={`shrink-0 px-2 py-1.5 text-[10px] ${
+                      p.retraceAtSafeZ
+                        ? "text-[var(--accent)]"
+                        : "text-[var(--muted)] hover:bg-[var(--panel-2)] hover:text-[var(--text)]"
+                    }`}
+                    onClick={() => updatePath(p.id, { retraceAtSafeZ: !p.retraceAtSafeZ })}
+                  >
+                    {p.retraceAtSafeZ ? "Retrace on" : "Retrace"}
                   </button>
                   <button
                     type="button"

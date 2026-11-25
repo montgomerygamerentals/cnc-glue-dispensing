@@ -26,6 +26,7 @@ export function AppShell() {
   const redo = useProjectStore((s) => s.redo);
   const saving = useProjectStore((s) => s.saving);
   const dryRun = useProjectStore((s) => s.project.dryRun);
+  const projectName = useProjectStore((s) => s.project.name);
 
   useEffect(() => {
     void hydrate();
@@ -70,10 +71,10 @@ export function AppShell() {
   return (
     <div className="flex h-dvh min-h-[640px] flex-col overflow-hidden bg-[var(--bg)] text-[var(--text)]">
       <header className="flex h-10 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--panel)] px-4">
-        <div className="flex items-center gap-3">
-          <span className="font-display text-base tracking-[0.04em]">GluePath CNC</span>
-          <span className="hidden text-[11px] text-[var(--muted)] sm:inline">
-            Adhesive dispensing · YoraHome 3018-Pro + GRBL · pneumatic syringe
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="shrink-0 font-display text-base tracking-[0.04em]">GluePath CNC</span>
+          <span className="truncate text-[13px] text-[var(--text)]" title={projectName}>
+            {projectName}
           </span>
         </div>
         <div className="flex items-center gap-2 text-[11px]">

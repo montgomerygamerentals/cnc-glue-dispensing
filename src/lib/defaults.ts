@@ -69,6 +69,7 @@ export const defaultPath = (modelId: string, name = "Path 1"): DispensingPath =>
   mode: "planar",
   points: [],
   safePoints: [],
+  retraceAtSafeZ: false,
   planarZ: 2,
   nozzleClearance: 1.5,
   direction: 1,
@@ -100,5 +101,6 @@ export function createProject(name = "Untitled dispensing job"): Project {
     dryRun: true,
     gcode: "",
     notes: "",
+    camera: null,
   };
 }

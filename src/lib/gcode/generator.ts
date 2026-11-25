@@ -156,6 +156,15 @@ function emitDispenseCycle(
       `G0 X${fmt(last.x + motion.endOffset.x)} Y${fmt(last.y + motion.endOffset.y)} F${fmt(motion.rapidSpeed)}`
     );
   }
+  if (path.retraceAtSafeZ) {
+    const departed = Boolean(motion.endOffset.x || motion.endOffset.y);
+    const back = [...ordered].reverse().slice(departed ? 0 : 1);
+    for (const p of back) {
+      lines.push(
+        `G0 X${fmt(p.x)} Y${fmt(p.y)} F${fmt(motion.rapidSpeed)} ; retrace at safe Z (dispenser OFF)`
+      );
+    }
+  }
   lines.push("");
 }
 
