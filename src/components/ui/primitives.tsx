@@ -1,6 +1,13 @@
 "use client";
 
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type SelectHTMLAttributes,
+} from "react";
 
 export function Section({
   title,
@@ -24,30 +31,107 @@ export function Section({
   );
 }
 
+/** Shows `text` after hovering ~1s. Dotted underline marks tippable labels. */
+export function HoverTip({
+  text,
+  children,
+  delayMs = 1000,
+}: {
+  text: string;
+  children: ReactNode;
+  delayMs?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearTimer = () => {
+    if (timerRef.current != null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const cancel = () => {
+    clearTimer();
+    setOpen(false);
+  };
+
+  const schedule = () => {
+    clearTimer();
+    timerRef.current = setTimeout(() => setOpen(true), delayMs);
+  };
+
+  useEffect(() => () => clearTimer(), []);
+
+  return (
+    <span
+      className="relative inline-flex max-w-full cursor-help"
+      onMouseEnter={schedule}
+      onMouseLeave={cancel}
+      onFocus={schedule}
+      onBlur={cancel}
+    >
+      {children}
+      {open ? (
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute left-0 top-[calc(100%+6px)] z-50 w-max max-w-[230px] rounded border border-[var(--border-strong)] bg-[#18212c] px-2 py-1.5 text-[10px] font-normal normal-case tracking-normal leading-snug text-[var(--text)] shadow-lg"
+        >
+          {text}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 export function Field({
   label,
   children,
   hint,
+  tooltip,
 }: {
   label: string;
   children: ReactNode;
   hint?: string;
+  /** Explains the setting; appears after ~1s hover on the label */
+  tooltip?: string;
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[11px] text-[var(--muted)]">{label}</span>
+      <span className="mb-1 block text-[11px] text-[var(--muted)]">
+        {tooltip ? <HoverTip text={tooltip}>{label}</HoverTip> : label}
+      </span>
       {children}
       {hint ? <span className="mt-1 block text-[10px] text-[var(--muted-2)]">{hint}</span> : null}
     </label>
   );
 }
 
+function clampNumber(n: number, min?: number, max?: number): number {
+  let next = n;
+  if (min != null && next < min) next = min;
+  if (max != null && next > max) next = max;
+  return next;
+}
+
+function roundToDecimals(n: number, decimals?: number): number {
+  if (decimals == null) return n;
+  const f = 10 ** decimals;
+  return Math.round(n * f) / f;
+}
+
+function formatNumber(n: number, decimals?: number): string {
+  if (!Number.isFinite(n)) return "";
+  return decimals != null ? n.toFixed(decimals) : String(n);
+}
+
 export function NumberInput({
   value,
   onChange,
-  step = 0.1,
+  step = 1,
   min,
   max,
+  decimals = 2,
   ...rest
 }: {
   value: number;
@@ -55,17 +139,61 @@ export function NumberInput({
   step?: number;
   min?: number;
   max?: number;
+  /** Display/commit precision. Defaults to 2 decimal places. */
+  decimals?: number;
 } & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type">) {
+  const [draft, setDraft] = useState(() => formatNumber(value, decimals));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) {
+      setDraft(formatNumber(value, decimals));
+    }
+  }, [value, focused, decimals]);
+
+  const { onFocus, onBlur, ...inputRest } = rest;
+
+  const commit = (n: number) => roundToDecimals(clampNumber(n, min, max), decimals);
+
   return (
     <input
       type="number"
       className="input"
-      value={Number.isFinite(value) ? value : 0}
+      {...inputRest}
+      value={draft}
       step={step}
       min={min}
       max={max}
-      onChange={(e) => onChange(Number(e.target.value))}
-      {...rest}
+      onFocus={(e) => {
+        setFocused(true);
+        onFocus?.(e);
+      }}
+      onBlur={(e) => {
+        setFocused(false);
+        const raw = e.target.value.trim();
+        if (raw === "" || raw === "-" || raw === "." || raw === "-.") {
+          const fallback = commit(Number.isFinite(value) ? value : (min ?? 0));
+          setDraft(formatNumber(fallback, decimals));
+          if (fallback !== value) onChange(fallback);
+        } else {
+          const n = Number(raw);
+          if (Number.isFinite(n)) {
+            const next = commit(n);
+            setDraft(formatNumber(next, decimals));
+            if (next !== value) onChange(next);
+          } else {
+            setDraft(formatNumber(value, decimals));
+          }
+        }
+        onBlur?.(e);
+      }}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        if (raw.trim() === "" || raw === "-" || raw === "." || raw === "-.") return;
+        const n = Number(raw);
+        if (Number.isFinite(n)) onChange(commit(n));
+      }}
     />
   );
 }

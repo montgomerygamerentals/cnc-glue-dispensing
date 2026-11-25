@@ -23,7 +23,7 @@ const ibmMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "GluePath CNC — Automated Adhesive Dispensing",
   description:
-    "Plan adhesive paths, fixture batches, and generate GRBL G-code for CNC glue dispensing on Genmitsu machines.",
+    "Plan adhesive paths and generate GRBL G-code for CNC glue dispensing on a YoraHome 3018-Pro.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

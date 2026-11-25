@@ -16,7 +16,7 @@ export function loadStlGeometry(data: ArrayBuffer): {
     y: box.max.y - box.min.y,
     z: box.max.z - box.min.z,
   };
-  // Center geometry at local origin for fixture placement
+  // Center geometry at local XY origin (Z on bottom) for placement
   const center = new THREE.Vector3();
   box.getCenter(center);
   geometry.translate(-center.x, -center.y, -box.min.z);

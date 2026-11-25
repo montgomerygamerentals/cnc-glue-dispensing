@@ -1,6 +1,6 @@
 # GluePath CNC — Automated Adhesive Dispensing
 
-Browser app for planning adhesive paths on a SainSmart Genmitsu CNC with an external pneumatic glue dispenser (983A-style). Generates GRBL-compatible G-code for batch fixture dispensing. **Not** a milling/cutting toolpath app.
+Browser app for planning adhesive paths on a YoraHome CNC Router 3018-Pro with an external pneumatic glue dispenser (983A-style). Generates GRBL-compatible G-code for glue dispensing. **Not** a milling/cutting toolpath app.
 
 ## Run locally
 
@@ -13,25 +13,24 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Core flow
 
-1. Import your workpiece STL (nothing ships bundled — start empty and import your own)
-2. Register the model in the machine work area
-3. Configure the 12-up fixture (rows × columns, spacing, machine position)
-4. Draw / edit the adhesive path on the master product (replicates to all slots). Delete a whole path or individual points from the right sidebar
-5. Configure dispenser ON/OFF commands (defaults `M8`/`M9` are placeholders)
-6. Keep **Dry-run** on until hardware is verified
-7. Generate G-code → simulate from that G-code → download `.gcode` for Candle / UGS
+1. Import one or more STLs (glue targets and/or bed obstacles)
+2. Mark each as **Glue** or **Obstacle**; place them in the work area
+3. Draw adhesive paths on glue models (right sidebar / click model). Obstacles are for clearance only
+4. Configure dispenser ON/OFF commands (defaults `M3 S1000` / `M5` for the laser output)
+5. Keep **Dry-run** on until hardware is verified
+6. Generate G-code → preview full nozzle travel (yellow = glue, cyan = rapid) → simulate → download `.gcode` for UGS
 
 Projects and settings persist in `localStorage`.
 
 ## Hardware you must confirm
 
-- Exact Genmitsu model and travel limits
+- YoraHome 3018-Pro travel limits (default 300 × 180 × 40 mm)
 - GRBL firmware / controller board
-- Isolated relay between CNC output and dispenser foot-pedal input
+- Isolated relay between the **laser output** (not spindle) and dispenser foot-pedal input
 - Pedal pinout and NO/NC behavior
-- Activation command mapping (do not assume `M8`/`M9`)
+- Activation command mapping (defaults `M3 S1000` / `M5`; confirm `$30` max spindle/laser S value)
 
-Never wire CNC output voltage directly to the dispenser pedal circuit.
+Never wire CNC laser/spindle voltage directly to the dispenser pedal circuit.
 
 ## Stack
 

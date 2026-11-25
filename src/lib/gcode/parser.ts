@@ -4,7 +4,7 @@ import type { ParsedMove, Vec3 } from "../types";
  * Parse generated G-code into simulation moves.
  * Source of truth for the simulator is the G-code text itself.
  */
-export function parseGcode(gcode: string, onCmd = "M8", offCmd = "M9"): ParsedMove[] {
+export function parseGcode(gcode: string, onCmd = "M3 S1000", offCmd = "M5"): ParsedMove[] {
   const moves: ParsedMove[] = [];
   let productIndex = 0;
   const onNorm = onCmd.trim().toUpperCase();
@@ -52,12 +52,14 @@ export function parseGcode(gcode: string, onCmd = "M8", offCmd = "M9"): ParsedMo
       const y = axis(upper, "Y");
       const z = axis(upper, "Z");
       const f = axis(upper, "F");
+      const s = axis(upper, "S");
       moves.push({
         type: isRapid ? "rapid" : "feed",
         x,
         y,
         z,
         f,
+        s,
         raw,
         productIndex,
       });
@@ -153,6 +155,18 @@ export function buildSimulationTimeline(
       continue;
     }
     if (move.type === "rapid" || move.type === "feed") {
+      if (move.type === "feed" && move.s !== undefined && (move.s > 0) !== dispenserOn) {
+        dispenserOn = move.s > 0;
+        t += 1;
+        frames.push({
+          timeMs: t,
+          position: { ...pos },
+          dispenserOn,
+          productIndex,
+          moveType: dispenserOn ? "dispense_on" : "dispense_off",
+          raw: move.raw,
+        });
+      }
       const next = {
         x: move.x ?? pos.x,
         y: move.y ?? pos.y,

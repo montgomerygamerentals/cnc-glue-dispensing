@@ -1,9 +1,10 @@
 export type Units = "mm" | "inch";
 export type CoordinateSystem = "absolute" | "relative";
 export type PathMode = "planar" | "surface";
+export type ModelRole = "glue" | "obstacle";
 export type WorkspaceTab =
+  | "projects"
   | "model"
-  | "fixture"
   | "path"
   | "dispenser"
   | "machine"
@@ -46,6 +47,8 @@ export interface StlAsset {
   dataBase64: string;
   dimensions: Vec3;
   transform: ModelTransform;
+  /** Glue targets get paths; obstacles are clearance geometry only */
+  role: ModelRole;
 }
 
 export interface PathPoint {
@@ -53,29 +56,26 @@ export interface PathPoint {
   position: Vec3;
 }
 
+/** XY waypoint flown at Safe Z on the way to a glue path. The relay stays off. */
+export interface SafeTravelPoint {
+  id: string;
+  x: number;
+  y: number;
+}
+
 export interface DispensingPath {
   id: string;
   name: string;
+  /** Model this path belongs to (glue targets only) */
+  modelId: string;
   mode: PathMode;
   points: PathPoint[];
+  /** XY points visited at Safe Z before this path's glue starts. */
+  safePoints: SafeTravelPoint[];
   /** Fixed Z for planar mode; clearance applied separately */
   planarZ: number;
   nozzleClearance: number;
   direction: 1 | -1;
-}
-
-export interface FixtureConfig {
-  rows: number;
-  columns: number;
-  spacingX: number;
-  spacingY: number;
-  orientationDeg: number;
-  width: number;
-  depth: number;
-  height: number;
-  machinePosition: Vec3;
-  /** Optional per-slot offsets keyed by "r-c" */
-  slotOffsets: Record<string, Vec3>;
 }
 
 export interface NozzleAssembly {
@@ -96,6 +96,8 @@ export interface DispenserConfig {
   purgeTimeMs: number;
   leadInMm: number;
   leadOutMm: number;
+  /** Seconds before the end of each glue run to turn the relay off. 0 = off at the last point. */
+  cutoffBeforeEndSec: number;
   verifiedHardware: boolean;
 }
 
@@ -103,7 +105,10 @@ export interface MotionConfig {
   rapidSpeed: number;
   dispensingSpeed: number;
   zSpeed: number;
+  /** Clearance Z while traveling between paths */
   safeZ: number;
+  /** Z at start/end park (home XY) before first move and after last path */
+  parkZ: number;
   dispensingZ: number;
   startOffset: Vec3;
   endOffset: Vec3;
@@ -114,11 +119,11 @@ export interface Project {
   name: string;
   updatedAt: string;
   machine: MachineConfig;
-  fixture: FixtureConfig;
   nozzle: NozzleAssembly;
   dispenser: DispenserConfig;
   motion: MotionConfig;
-  stl: StlAsset | null;
+  models: StlAsset[];
+  activeModelId: string | null;
   paths: DispensingPath[];
   activePathId: string | null;
   dryRun: boolean;
@@ -148,7 +153,15 @@ export interface ParsedMove {
   y?: number;
   z?: number;
   f?: number;
+  /** Spindle/laser power on this block. S0 turns the relay off without a separate stop. */
+  s?: number;
   dwellMs?: number;
   raw: string;
   productIndex?: number;
+}
+
+export interface ToolpathSegment {
+  from: Vec3;
+  to: Vec3;
+  kind: "rapid" | "dispense";
 }

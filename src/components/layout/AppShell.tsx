@@ -3,7 +3,6 @@
 import dynamic from "next/dynamic";
 import { useEffect } from "react";
 import { LeftSidebar } from "@/components/panels/LeftSidebar";
-import { RightSidebar } from "@/components/panels/RightSidebar";
 import { BottomPanel } from "@/components/panels/BottomPanel";
 import { useProjectStore } from "@/store/project-store";
 
@@ -22,12 +21,51 @@ const DispensingScene = dynamic(
 
 export function AppShell() {
   const hydrate = useProjectStore((s) => s.hydrate);
+  const save = useProjectStore((s) => s.save);
+  const undo = useProjectStore((s) => s.undo);
+  const redo = useProjectStore((s) => s.redo);
+  const saving = useProjectStore((s) => s.saving);
   const dryRun = useProjectStore((s) => s.project.dryRun);
-  const verified = useProjectStore((s) => s.project.dispenser.verifiedHardware);
 
   useEffect(() => {
-    hydrate();
+    void hydrate();
+    const tab = useProjectStore.getState().tab as string;
+    if (tab === "fixture") useProjectStore.getState().setTab("model");
   }, [hydrate]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+
+      if (key === "s") {
+        e.preventDefault();
+        void save();
+        return;
+      }
+
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const typing =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        Boolean(target?.isContentEditable);
+      if (typing) return;
+
+      if (key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if (key === "y" || (key === "z" && e.shiftKey)) {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [redo, save, undo]);
 
   return (
     <div className="flex h-dvh min-h-[640px] flex-col overflow-hidden bg-[var(--bg)] text-[var(--text)]">
@@ -35,10 +73,13 @@ export function AppShell() {
         <div className="flex items-center gap-3">
           <span className="font-display text-base tracking-[0.04em]">GluePath CNC</span>
           <span className="hidden text-[11px] text-[var(--muted)] sm:inline">
-            Adhesive dispensing · Genmitsu + GRBL · pneumatic syringe
+            Adhesive dispensing · YoraHome 3018-Pro + GRBL · pneumatic syringe
           </span>
         </div>
         <div className="flex items-center gap-2 text-[11px]">
+          {saving ? (
+            <span className="animate-pulse text-[var(--muted)]">Saving…</span>
+          ) : null}
           {dryRun ? (
             <span className="rounded border border-[var(--accent)]/40 bg-[var(--accent-soft)] px-2 py-0.5 text-[var(--accent)]">
               DRY-RUN
@@ -48,11 +89,6 @@ export function AppShell() {
               LIVE COMMANDS
             </span>
           )}
-          {!verified ? (
-            <span className="rounded border border-[var(--warn-border)] bg-[var(--warn-bg)] px-2 py-0.5 text-[var(--warn-text)]">
-              Hardware unverified
-            </span>
-          ) : null}
         </div>
       </header>
 
@@ -61,7 +97,6 @@ export function AppShell() {
         <main className="relative min-w-0 flex-1 bg-[var(--viewport)]">
           <DispensingScene />
         </main>
-        <RightSidebar />
       </div>
 
       <BottomPanel />

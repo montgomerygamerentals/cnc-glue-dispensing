@@ -1,7 +1,6 @@
 import type {
   DispenserConfig,
   DispensingPath,
-  FixtureConfig,
   MachineConfig,
   MotionConfig,
   NozzleAssembly,
@@ -13,13 +12,13 @@ export function uid(prefix = "id"): string {
 }
 
 export const defaultMachine = (): MachineConfig => ({
-  model: "SainSmart Genmitsu (confirm model)",
+  model: "YoraHome CNC Router 3018-Pro",
   travelX: 300,
   travelY: 180,
-  travelZ: 45,
+  travelZ: 40,
   workAreaX: 300,
   workAreaY: 180,
-  workAreaZ: 45,
+  workAreaZ: 40,
   maxSpeed: 2000,
   acceleration: 100,
   homePosition: { x: 0, y: 0, z: 0 },
@@ -27,19 +26,6 @@ export const defaultMachine = (): MachineConfig => ({
   coordinateSystem: "absolute",
   grblCompatible: true,
   units: "mm",
-});
-
-export const defaultFixture = (): FixtureConfig => ({
-  rows: 3,
-  columns: 4,
-  spacingX: 60,
-  spacingY: 45,
-  orientationDeg: 0,
-  width: 260,
-  depth: 150,
-  height: 12,
-  machinePosition: { x: 20, y: 20, z: 0 },
-  slotOffsets: {},
 });
 
 export const defaultNozzle = (): NozzleAssembly => ({
@@ -53,13 +39,15 @@ export const defaultNozzle = (): NozzleAssembly => ({
 });
 
 export const defaultDispenser = (): DispenserConfig => ({
-  activationCommand: "M8",
-  deactivationCommand: "M9",
+  // YoraHome 3018-Pro laser port (GRBL): PWM/enable via M3 S… / M5 — wire relay to laser output, not spindle.
+  activationCommand: "M3 S1000",
+  deactivationCommand: "M5",
   activationDelayMs: 150,
   deactivationDelayMs: 100,
   purgeTimeMs: 0,
   leadInMm: 0,
   leadOutMm: 0,
+  cutoffBeforeEndSec: 0,
   verifiedHardware: false,
 });
 
@@ -68,54 +56,49 @@ export const defaultMotion = (): MotionConfig => ({
   dispensingSpeed: 400,
   zSpeed: 300,
   safeZ: 15,
+  parkZ: 25,
   dispensingZ: 2,
   startOffset: { x: 0, y: 0, z: 0 },
   endOffset: { x: 0, y: 0, z: 0 },
 });
 
-export const defaultPath = (): DispensingPath => ({
+export const defaultPath = (modelId: string, name = "Path 1"): DispensingPath => ({
   id: uid("path"),
-  name: "Primary adhesive path",
+  name,
+  modelId,
   mode: "planar",
-  points: [
-    { id: uid("pt"), position: { x: -15, y: 0, z: 2 } },
-    { id: uid("pt"), position: { x: 15, y: 0, z: 2 } },
-  ],
+  points: [],
+  safePoints: [],
   planarZ: 2,
   nozzleClearance: 1.5,
   direction: 1,
 });
 
+/** Next unused "Path N" name based on existing path names. */
+export function nextPathName(paths: Array<{ name: string }>): string {
+  let max = 0;
+  for (const p of paths) {
+    const match = /^Path\s+(\d+)$/i.exec(p.name.trim());
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return `Path ${max + 1}`;
+}
+
 export function createProject(name = "Untitled dispensing job"): Project {
-  const path = defaultPath();
   return {
     id: uid("proj"),
     name,
     updatedAt: new Date().toISOString(),
     machine: defaultMachine(),
-    fixture: defaultFixture(),
     nozzle: defaultNozzle(),
     dispenser: defaultDispenser(),
     motion: defaultMotion(),
-    stl: null,
-    paths: [path],
-    activePathId: path.id,
+    models: [],
+    activeModelId: null,
+    paths: [],
+    activePathId: null,
     dryRun: true,
     gcode: "",
     notes: "",
   };
 }
-
-export const HARDWARE_WARNING = `Hardware verification required before live dispensing.
-
-The pneumatic dispenser's foot pedal input is a separate electrical circuit. The CNC controller must trigger an isolated relay that simulates foot-pedal switch closure. Do not connect CNC output voltage directly to the dispenser's pedal input.
-
-Confirm before adhesive use:
-• Genmitsu model, travel limits, and GRBL firmware
-• Controller output type/voltage for dispenser ON/OFF
-• Relay module input requirements and COM/NO or COM/NC wiring
-• Dispenser foot-pedal contact behavior (NO/NC) and pinout
-• Dry-run motion with dispenser disabled
-• Nozzle clearance and fixture registration on the physical machine
-
-Configurable commands (default M8/M9) are placeholders until your pinout is confirmed.`;

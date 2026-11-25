@@ -1,37 +1,38 @@
-import { pathLengthMm, replicatePathAcrossFixture } from "./fixture";
+import { pathLengthMm } from "./fixture";
+import { cutoffTailMm, polylineLengthMm } from "./gcode/generator";
+import { pathPointsWorld } from "./models";
 import type { Project, ValidationIssue } from "./types";
 
 export function validateProject(project: Project): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  const path = project.paths.find((p) => p.id === project.activePathId) ?? project.paths[0];
-  const { machine, motion, dispenser, fixture } = project;
+  const { machine, motion, dispenser } = project;
 
-  if (project.paths.length === 0 || !path) {
-    issues.push({
-      level: "error",
-      message: "No adhesive path defined. Create a dispensing path before generating G-code.",
-    });
-  } else if (path.points.length < 2) {
-    issues.push({ level: "error", message: "Dispensing path requires at least two points." });
-  }
+  const glueModels = project.models.filter((m) => m.role === "glue");
+  const readyJobs = glueModels.flatMap((model) =>
+    project.paths.filter((p) => p.modelId === model.id && p.points.length >= 2).map((path) => ({ model, path }))
+  );
 
-  if (!project.stl) {
+  if (project.models.length === 0) {
     issues.push({
       level: "warning",
-      message: "No STL imported yet. Import a workpiece model to visualize products in the fixture.",
+      message: "No models imported. Import glue targets and any bed obstacles for clearance.",
+    });
+  }
+
+  if (glueModels.length === 0) {
+    issues.push({
+      level: "error",
+      message: "No glue-target models. Mark at least one model as Glue (or import one).",
+    });
+  } else if (readyJobs.length === 0) {
+    issues.push({
+      level: "error",
+      message: "No adhesive path ready. Select a glue model and add at least two path points.",
     });
   }
 
   if (!dispenser.activationCommand.trim() || !dispenser.deactivationCommand.trim()) {
     issues.push({ level: "error", message: "Dispenser ON and OFF commands must be configured." });
-  }
-
-  if (!dispenser.verifiedHardware) {
-    issues.push({
-      level: "warning",
-      message:
-        "Hardware not marked verified. Confirm Genmitsu model, relay isolation, and pedal pinout before live dispensing.",
-    });
   }
 
   if (project.dryRun) {
@@ -41,19 +42,39 @@ export function validateProject(project: Project): ValidationIssue[] {
     });
   }
 
-  if (path?.mode === "surface") {
-    issues.push({
-      level: "warning",
-      message:
-        "Surface-following mode: three-axis machines cannot reach arbitrary orientations. Verify reachability and clearances.",
-    });
-  }
+  const cutoffMm = cutoffTailMm(motion.dispensingSpeed, dispenser.cutoffBeforeEndSec ?? 0);
 
-  if (motion.dispensingZ + (path?.nozzleClearance ?? 0) >= motion.safeZ) {
-    issues.push({
-      level: "warning",
-      message: "Dispensing Z (plus clearance) should be below safe Z for retract clearance.",
-    });
+  for (const { model, path } of readyJobs) {
+    if (path.mode === "surface") {
+      issues.push({
+        level: "warning",
+        message: `Path "${path.name}": surface-following on a three-axis machine — verify reachability.`,
+      });
+    }
+    if (motion.dispensingZ + path.nozzleClearance >= motion.safeZ) {
+      issues.push({
+        level: "warning",
+        message: `Path "${path.name}": dispensing Z (plus clearance) should be below safe Z.`,
+      });
+    }
+    if (pathLengthMm(path.points) < 0.1) {
+      issues.push({ level: "warning", message: `Path "${path.name}" length is near zero.` });
+    }
+    for (const stop of path.safePoints ?? []) {
+      if (stop.x < 0 || stop.y < 0 || stop.x > machine.travelX || stop.y > machine.travelY) {
+        issues.push({
+          level: "error",
+          message: `Path "${path.name}" safe travel point is outside XY travel (${machine.travelX}×${machine.travelY} mm).`,
+        });
+        break;
+      }
+    }
+    if (cutoffMm > 0 && polylineLengthMm(pathPointsWorld(path, model, motion.dispensingZ)) < cutoffMm) {
+      issues.push({
+        level: "warning",
+        message: `Path "${path.name}" is shorter than the relay cutoff (${cutoffMm.toFixed(1)} mm). The relay turns off at the start of that run.`,
+      });
+    }
   }
 
   if (motion.dispensingSpeed > machine.maxSpeed || motion.rapidSpeed > machine.maxSpeed) {
@@ -63,43 +84,27 @@ export function validateProject(project: Project): ValidationIssue[] {
     });
   }
 
-  if (path && path.points.length >= 2) {
-    const batches = replicatePathAcrossFixture(path, fixture);
-    for (const batch of batches) {
-      for (const p of batch.points) {
-        if (p.x < 0 || p.y < 0 || p.x > machine.travelX || p.y > machine.travelY) {
-          issues.push({
-            level: "error",
-            message: `Product ${batch.index + 1} path point outside XY travel (${machine.travelX}×${machine.travelY} mm).`,
-          });
-          break;
-        }
-        if (p.z < 0 || p.z > machine.travelZ) {
-          issues.push({
-            level: "error",
-            message: `Product ${batch.index + 1} path Z outside travel (0–${machine.travelZ} mm).`,
-          });
-          break;
-        }
+  for (const { model, path } of readyJobs) {
+    const pts = pathPointsWorld(path, model, motion.dispensingZ);
+    for (const p of pts) {
+      if (p.x < 0 || p.y < 0 || p.x > machine.travelX || p.y > machine.travelY) {
+        issues.push({
+          level: "error",
+          message: `"${model.name}" path outside XY travel (${machine.travelX}×${machine.travelY} mm).`,
+        });
+        break;
+      }
+      if (p.z < 0 || p.z > machine.travelZ) {
+        issues.push({
+          level: "error",
+          message: `"${model.name}" path Z outside travel (0–${machine.travelZ} mm).`,
+        });
+        break;
       }
     }
-
-    const len = pathLengthMm(path.points);
-    if (len < 0.1) {
-      issues.push({ level: "warning", message: "Path length is near zero." });
-    }
   }
 
-  if (fixture.rows * fixture.columns < 1) {
-    issues.push({ level: "error", message: "Fixture must contain at least one product slot." });
-  }
-
-  if (project.nozzle.horizontalOffset < 0) {
-    issues.push({ level: "warning", message: "Nozzle horizontal offset is negative — verify mounting." });
-  }
-
-  // Approximate collision: nozzle tip below machine table
-  if (motion.dispensingZ + path?.nozzleClearance! < 0) {
+  if (motion.dispensingZ < 0) {
     issues.push({
       level: "error",
       message: "Nozzle tip would go below Z=0 — raise dispensing height or clearance.",
