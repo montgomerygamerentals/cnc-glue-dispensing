@@ -248,7 +248,7 @@ function ProjectsPanel() {
           </Button>
           <Button onClick={() => void duplicate()}>Duplicate</Button>
           <Button onClick={newProject}>New</Button>
-          <Button variant="primary" onClick={generate}>
+          <Button variant="primary" onClick={() => generate()}>
             Generate
           </Button>
         </div>
@@ -1169,7 +1169,7 @@ function GcodePanelBrief() {
 
   return (
     <Section title="G-code">
-      <Button variant="primary" onClick={generate}>
+      <Button variant="primary" onClick={() => generate()}>
         Generate G-code
       </Button>
       <Button
